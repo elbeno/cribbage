@@ -7,7 +7,7 @@
 #include <iterator>
 #include <random>
 #include <tuple>
-#include <type_traits>
+#include <utility>
 #include <vector>
 
 using namespace std;
@@ -17,13 +17,16 @@ using namespace std;
 
 //------------------------------------------------------------------------------
 
-enum class Suit : uint8_t {
+enum class Suit : uint8_t
+{
   Spades,
   Hearts,
   Diamonds,
   Clubs
 };
 
+// When making a deck, it's going to be convenient to increment suits and wrap
+// around
 Suit& operator++(Suit& s)
 {
   switch (s)
@@ -39,11 +42,14 @@ Suit& operator++(Suit& s)
 
 //------------------------------------------------------------------------------
 
+// Individual card symbols
 const char* card_symbols =
   "🂡🂢🂣🂤🂥🂦🂧🂨🂩🂪🂫🂭🂮"
   "🂱🂲🂳🂴🂵🂶🂷🂸🂹🂺🂻🂽🂾"
   "🃁🃂🃃🃄🃅🃆🃇🃈🃉🃊🃋🃍🃎"
   "🃑🃒🃓🃔🃕🃖🃗🃘🃙🃚🃛🃝🃞";
+
+//------------------------------------------------------------------------------
 
 const char* suit_symbols[] =
 {
@@ -74,8 +80,8 @@ const char* value_symbols[] =
 //------------------------------------------------------------------------------
 
 struct Card {
-  uint8_t value;
-  Suit suit;
+  uint8_t value = 1;
+  Suit suit = Suit::Spades;
 };
 
 bool operator==(const Card& x, const Card& y)
@@ -105,6 +111,21 @@ ostream& operator<<(ostream& s, const Card& c)
 
 using Hand = vector<Card>;
 
+// Outputting a vector of cards is just outputting each card separated by a
+// space
+ostream& operator<<(ostream& s, const vector<Card>& v)
+{
+  auto it = v.cbegin();
+  if (it != v.cend()) {
+    cout << *it;
+    for (++it; it != v.cend(); ++it)
+    {
+      s << ' ' << *it;
+    }
+  }
+  return s;
+}
+
 //------------------------------------------------------------------------------
 
 struct RNG
@@ -122,19 +143,6 @@ struct RNG
 //------------------------------------------------------------------------------
 
 using Deck = vector<Card>;
-
-ostream& operator<<(ostream& s, const Deck& d)
-{
-  auto it = d.cbegin();
-  if (it != d.cend()) {
-    cout << *it;
-    for (++it; it != d.cend(); ++it)
-    {
-      s << ' ' << *it;
-    }
-  }
-  return s;
-}
 
 Deck make_deck()
 {
@@ -163,6 +171,7 @@ void shuffle_deck(Deck& deck)
   shuffle(deck.begin(), deck.end(), rng.gen);
 }
 
+// Dealing off the bottom :)
 Hand deal_hand(Deck& deck)
 {
   Hand h;
@@ -174,71 +183,130 @@ Hand deal_hand(Deck& deck)
 
 //------------------------------------------------------------------------------
 
-void score_ns(vector<Card>::const_iterator first,
-              vector<Card>::const_iterator last,
-              int n,
-              vector<Card>& ns,
-              int& score)
+enum class ScoreType : uint8_t
 {
-  if (first == last || n < 0) return;
+  Fifteen,
+  Pair,
+  Run,
+  Flush,
+  Nob
+};
 
-  int this_val = play_value(*first);
-  if (this_val == n) {
-    score += 2;
-    cout << "Fifteen " << score << ": " << ns << ' ' << *first << endl;
+// A score is a type and a vector of cards that make that score. The integral
+// value of the score can be inferred from the type and if necessary the size of
+// the vector.
+struct Score
+{
+  ScoreType type;
+  vector<Card> cards;
+};
+
+int print_score(ostream& os, const vector<Score>& scores)
+{
+  int total = 0;
+  for (const auto& s : scores)
+  {
+    switch (s.type)
+    {
+      case ScoreType::Fifteen:
+        total += 2;
+        os << "Fifteen " << total << ": " << s.cards << '\n';
+        break;
+      case ScoreType::Pair:
+      {
+        switch (s.cards.size())
+        {
+          case 2:
+            total += 2;
+            os << "2 for a pair (" << s.cards << "), " << total << '\n';
+            break;
+          case 3:
+            total += 6;
+            os << "6 for threes (" << s.cards << "), " << total << '\n';
+            break;
+          case 4:
+            total += 12;
+            os << "12 for fours (" << s.cards << "), " << total << '\n';
+            break;
+
+          default: break;
+        }
+        break;
+      }
+      case ScoreType::Run:
+        total += s.cards.size();
+        os << s.cards.size() << " for a run (" << s.cards << "), " << total << '\n';
+        break;
+      case ScoreType::Flush:
+        total += s.cards.size();
+        os << s.cards.size() << " for a flush (" << s.cards << "), " << total << '\n';
+        break;
+      case ScoreType::Nob:
+        ++total;
+        os << "1 for his nob (" << s.cards << "), " << total << '\n';
+        break;
+
+      default: break;
+    }
   }
-
-  ns.push_back(*first);
-  score_ns(first+1, last, n - this_val, ns, score);
-  ns.pop_back();
-
-  score_ns(first+1, last, n, ns, score);
-}
-
-int fifteens_score(const Hand& h)
-{
-  vector<Card> v;
-  int score = 0;
-  score_ns(h.cbegin(), h.cend(), 15, v, score);
-  return score;
+  os << "Total " << total << '\n';
+  return total;
 }
 
 //------------------------------------------------------------------------------
 
-void pairs_score(const Hand& h, int& score)
+vector<Score> score_ns(vector<Card>::const_iterator first,
+                       vector<Card>::const_iterator last,
+                       int n,
+                       vector<Card>& ns)
 {
+  if (first == last || n < 0) return {};
+
+  vector<Score> result;
+
+  int this_val = play_value(*first);
+  if (this_val == n) {
+    // if this card makes 15, this is one solution
+    result.push_back({ScoreType::Fifteen, ns});
+    result.back().cards.push_back(*first);
+  } else {
+    // other solutions that involve this card
+    ns.push_back(*first);
+    vector<Score> solns = score_ns(first+1, last, n - this_val, ns);
+    ns.pop_back();
+    move(solns.begin(), solns.end(), back_inserter(result));
+  }
+
+  // solutions that don't involve this card
+  vector<Score> solns = score_ns(first+1, last, n, ns);
+  move(solns.begin(), solns.end(), back_inserter(result));
+
+  return result;
+}
+
+vector<Score> fifteens_score(const Hand& h)
+{
+  vector<Card> v;
+  return score_ns(h.cbegin(), h.cend(), 15, v);
+}
+
+//------------------------------------------------------------------------------
+
+vector<Score> pairs_score(const Hand& h)
+{
+  vector<Score> result;
   auto cur = h.cbegin();
   for (auto it = h.cbegin() + 1; cur != h.cend(); ++it)
   {
     if (it == h.cend() || cur->value != it->value) {
-      switch (it - cur) {
-        case 2:
-          score += 2;
-          cout << "2 for a pair " << cur[0]
-               << ' ' << cur[1]
-               << ", " << score << endl;
-          break;
-        case 3:
-          score += 6;
-          cout << "6 for threes " << cur[0]
-               << ' ' << cur[1]
-               << ' ' << cur[2]
-               << ", " << score << endl;
-          break;
-        case 4:
-          score += 12;
-          cout << "12 for fours " << cur[0]
-               << ' ' << cur[1]
-               << ' ' << cur[2]
-               << ' ' << cur[3]
-               << ", " << score << endl;
-          break;
-        default:
-          break;
+      // a 'pair' is any set of >=2 cards
+      if (it - cur >= 2) {
+        result.push_back({ScoreType::Pair, vector<Card>{cur, it}});
       }
       cur = it;
     }
   }
+  return result;
 }
 
 //------------------------------------------------------------------------------
@@ -248,75 +316,83 @@ void runs_score(vector<Card>::const_iterator first,
                 vector<Card>& run,
                 vector<vector<Card>>& scoring_runs)
 {
-  auto s = run.size();
+  // detect a run
   if (first == last) {
-    if (s < 3) return;
-    auto val = run.cbegin()->value;
-    for (auto it = run.cbegin()+1; it != run.cend(); ++it)
-    {
-      if (it->value - val != 1) return;
-      val = it->value;
+    if (run.size() < 3) return;
+    auto it = adjacent_find(run.cbegin(), run.cend(),
+                            [] (const Card& x, const Card& y) {
+                              return y.value - x.value != 1;
+                            });
+    if (it == run.cend()) {
+      scoring_runs.push_back(run);
     }
-    scoring_runs.push_back(run);
     return;
   }
 
-  runs_score(first+1, last, run, scoring_runs);
+  // runs including this card
   run.push_back(*first);
   runs_score(first+1, last, run, scoring_runs);
   run.pop_back();
+
+  // runs not including this card
+  runs_score(first+1, last, run, scoring_runs);
 }
 
-void runs_score(const Hand& h, int& score)
+vector<Score> runs_score(const Hand& h)
 {
   vector<Card> run;
   vector<vector<Card>> scoring_runs;
   runs_score(h.cbegin(), h.cend(), run, scoring_runs);
 
+  // runs may contain other runs (a run of four contains two runs of three for
+  // instance) - so we just count the runs of the greatest size
   sort(scoring_runs.begin(), scoring_runs.end(),
        [] (const vector<Card>& x, const vector<Card>& y) {
          return x.size() >= y.size();
        });
+
+  vector<Score> result;
   if (!scoring_runs.empty()) {
     auto it = find_if(scoring_runs.cbegin(), scoring_runs.cend(),
                       [&] (const vector<Card>& v) {
                         return v.size() != scoring_runs[0].size(); });
-    for (auto i = scoring_runs.cbegin(); i != it; ++i) {
-      score += i->size();
-      cout << i->size() << " for the run " << *i << ", " << score << endl;
+    for (auto i = scoring_runs.cbegin(); i != it; ++i)
+    {
+      result.push_back({ScoreType::Run, *i});
     }
   }
+  return result;
 }
 
 //------------------------------------------------------------------------------
 
-void flush_score(const Hand& h, const Card& starter, int& score)
+vector<Score> flush_score(const Hand& h, const Card& starter)
 {
+  // a flush may be all the hand cards, or the hand cards and the starter
   auto suit = h[0].suit;
   if (all_of(h.cbegin()+1, h.cend(),
              [&] (const Card& c) { return c.suit == suit; }))
   {
-    score += 4;
+    vector<Score> result{1, {ScoreType::Flush, h}};
     if (starter.suit == suit) {
-      ++score;
-      cout << "5 for the flush " << h << ' ' << starter << ", " << score << endl;
-    } else {
-      cout << "4 for the flush " << h << ", " << score << endl;
+      result.back().cards.push_back(starter);
     }
+    return result;
   }
+  return {};
 }
 
 //------------------------------------------------------------------------------
 
-void nob_score(const Hand& h, const Card& starter, int& score)
+vector<Score> nob_score(const Hand& h, const Card& starter)
 {
   const uint8_t Jack = 11;
   Card c{Jack, starter.suit};
   auto it = find(h.cbegin(), h.cend(), c);
   if (it != h.cend()) {
-    ++score;
-    cout << "One for his nob " << *it << ", " << score << endl;
+    return {{ScoreType::Nob, vector<Card>{1, c}}};
   }
+  return {};
 }
 
 //------------------------------------------------------------------------------
@@ -327,15 +403,23 @@ int compute_score(const Hand& h, const Card& starter)
   h5.push_back(starter);
   cout << h5 << endl;
 
-  auto s = fifteens_score(h5);
+  auto scores = fifteens_score(h5);
 
-  sort(h5.begin(), h5.end());
-  pairs_score(h5, s);
-  runs_score(h5, s);
+  stable_sort(h5.begin(), h5.end());
 
-  flush_score(h, starter, s);
-  nob_score(h, starter, s);
-  return s;
+  auto pairs = pairs_score(h5);
+  move(pairs.begin(), pairs.end(), back_inserter(scores));
+
+  auto runs = runs_score(h5);
+  move(runs.begin(), runs.end(), back_inserter(scores));
+
+  auto flushes = flush_score(h, starter);
+  move(flushes.begin(), flushes.end(), back_inserter(scores));
+
+  auto nob = nob_score(h, starter);
+  move(nob.begin(), nob.end(), back_inserter(scores));
+
+  return print_score(cout, scores);
 }
 
 //------------------------------------------------------------------------------
