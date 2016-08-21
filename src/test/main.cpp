@@ -84,6 +84,11 @@ struct Card {
   Suit suit = Suit::Spades;
 };
 
+constexpr uint8_t Ace = 1;
+constexpr uint8_t Jack = 11;
+constexpr uint8_t Queen = 12;
+constexpr uint8_t King = 13;
+
 bool operator==(const Card& x, const Card& y)
 {
   return x.value == y.value && x.suit == y.suit;
@@ -146,17 +151,16 @@ using Deck = vector<Card>;
 
 Deck make_deck()
 {
-  const uint8_t Ace = 1;
-  const uint8_t King = 13;
   const size_t decksize = 52;
 
   Suit s = Suit::Clubs;
-  uint8_t v = 1;
+  uint8_t v = Ace;
 
+  // the odd increment strategy here works because 4 and 13 are coprime :)
   vector<Card> d;
   d.reserve(decksize);
   generate_n(back_inserter(d), decksize,
-             [&] () mutable {
+             [&] () {
                Card c { v, s };
                ++v; if (v > King) v = Ace;
                ++s;
@@ -272,13 +276,13 @@ vector<Score> score_ns(vector<Card>::const_iterator first,
   } else {
     // other solutions that involve this card
     ns.push_back(*first);
-    vector<Score> solns = score_ns(first+1, last, n - this_val, ns);
+    auto solns = score_ns(first+1, last, n - this_val, ns);
     ns.pop_back();
     move(solns.begin(), solns.end(), back_inserter(result));
   }
 
   // solutions that don't involve this card
-  vector<Score> solns = score_ns(first+1, last, n, ns);
+  auto solns = score_ns(first+1, last, n, ns);
   move(solns.begin(), solns.end(), back_inserter(result));
 
   return result;
@@ -386,7 +390,6 @@ vector<Score> flush_score(const Hand& h, const Card& starter)
 
 vector<Score> nob_score(const Hand& h, const Card& starter)
 {
-  const uint8_t Jack = 11;
   Card c{Jack, starter.suit};
   auto it = find(h.cbegin(), h.cend(), c);
   if (it != h.cend()) {
@@ -405,7 +408,7 @@ int compute_score(const Hand& h, const Card& starter)
 
   auto scores = fifteens_score(h5);
 
-  stable_sort(h5.begin(), h5.end());
+  sort(h5.begin(), h5.end());
 
   auto pairs = pairs_score(h5);
   move(pairs.begin(), pairs.end(), back_inserter(scores));
@@ -519,7 +522,7 @@ DEF_TEST(Nob, Nob)
   Hand h = { {2, Suit::Hearts},
              {4, Suit::Spades},
              {6, Suit::Spades},
-             {11, Suit::Spades} };
+             {Jack, Suit::Spades} };
   Card starter = { 10, Suit::Spades };
   return compute_score(h, starter) == 1;
 }
@@ -530,7 +533,7 @@ DEF_TEST(NoNob, Nob)
              {4, Suit::Spades},
              {6, Suit::Spades},
              {10, Suit::Spades} };
-  Card starter = { 11, Suit::Spades };
+  Card starter = { Jack, Suit::Spades };
   return compute_score(h, starter) == 0;
 }
 
@@ -547,9 +550,9 @@ DEF_PROPERTY(Nineteen, Hands, mt19937::result_type seed)
 DEF_TEST(Run3, Runs)
 {
   Hand h = { {10, Suit::Hearts},
-             {11, Suit::Clubs},
-             {12, Suit::Diamonds},
-             {1, Suit::Spades} };
+             {Jack, Suit::Clubs},
+             {Queen, Suit::Diamonds},
+             {Ace, Suit::Spades} };
   Card starter = { 2, Suit::Spades };
   return compute_score(h, starter) == 3;
 }
@@ -557,9 +560,9 @@ DEF_TEST(Run3, Runs)
 DEF_TEST(Run4, Runs)
 {
   Hand h = { {10, Suit::Hearts},
-             {11, Suit::Clubs},
-             {12, Suit::Diamonds},
-             {13, Suit::Spades} };
+             {Jack, Suit::Clubs},
+             {Queen, Suit::Diamonds},
+             {King, Suit::Spades} };
   Card starter = { 2, Suit::Spades };
   return compute_score(h, starter) == 4;
 }
@@ -567,9 +570,9 @@ DEF_TEST(Run4, Runs)
 DEF_TEST(DoubleRun, Runs)
 {
   Hand h = { {10, Suit::Hearts},
-             {11, Suit::Clubs},
-             {11, Suit::Diamonds},
-             {12, Suit::Spades} };
+             {Jack, Suit::Clubs},
+             {Jack, Suit::Diamonds},
+             {Queen, Suit::Spades} };
   Card starter = { 2, Suit::Spades };
   return compute_score(h, starter) == 8;
 }
@@ -577,9 +580,9 @@ DEF_TEST(DoubleRun, Runs)
 DEF_TEST(Run5, Runs)
 {
   Hand h = { {10, Suit::Hearts},
-             {11, Suit::Clubs},
-             {12, Suit::Diamonds},
-             {13, Suit::Spades} };
+             {Jack, Suit::Clubs},
+             {Queen, Suit::Diamonds},
+             {King, Suit::Spades} };
   Card starter = { 9, Suit::Spades };
   return compute_score(h, starter) == 5;
 }
@@ -589,17 +592,17 @@ DEF_TEST(Max, Hands)
   Hand h = { {5, Suit::Hearts},
              {5, Suit::Clubs},
              {5, Suit::Diamonds},
-             {11, Suit::Spades} };
+             {Jack, Suit::Spades} };
   Card starter = { 5, Suit::Spades };
   return compute_score(h, starter) == 29;
 }
 
 DEF_TEST(PairAndRun, Hands)
 {
-  Hand h = { {1, Suit::Hearts},
-             {1, Suit::Clubs},
+  Hand h = { {Ace, Suit::Hearts},
+             {Ace, Suit::Clubs},
              {9, Suit::Diamonds},
              {10, Suit::Spades} };
-  Card starter = { 11, Suit::Spades };
+  Card starter = { Jack, Suit::Spades };
   return compute_score(h, starter) == 5;
 }
